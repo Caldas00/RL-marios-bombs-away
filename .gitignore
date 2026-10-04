@@ -4,8 +4,6 @@ __pycache__/
 *.pyc
 .DS_Store
 
-# MAME: a ROM tem direitos de autor; cfg/ e gerado automaticamente
-roms/
 cfg/
 nvram/
 snap/
