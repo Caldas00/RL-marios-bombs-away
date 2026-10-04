@@ -1,0 +1,18 @@
+# ambiente
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# MAME: a ROM tem direitos de autor; cfg/ e gerado automaticamente
+roms/
+cfg/
+nvram/
+snap/
+*.log
+
+# treinos novos (os modelos de referencia estao em models/)
+checkpoints*/
+
+# dumps grandes gerados pelo dump_ram.lua
+research/data/ram_dump.csv
