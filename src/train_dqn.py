@@ -1,19 +1,19 @@
-"""Double DQN para Mario's Bombs Away. Requer o lua/env_server.lua a correr no MAME.
+"""Double DQN for Mario's Bombs Away. Requires lua/env_server.lua running in MAME.
 
-Corre a partir da pasta do projeto (dois terminais):
+Run from the project folder (two terminals):
     mame gnw_mbaway -autoboot_script lua/env_server.lua -autoboot_delay 0 \
          -window -nothrottle -sound none
     python src/train_dqn.py
 
-Variaveis de ambiente (todas opcionais): MB_STEPS, MB_LR, MB_EPS_START, MB_EPS_END,
+Environment variables (all optional): MB_STEPS, MB_LR, MB_EPS_START, MB_EPS_END,
 MB_EPS_DECAY, MB_WARMUP, MB_MAX_STEPS, MB_FRAME_STACK, MB_SHAPING, MB_CKPT_DIR,
-MB_RESUME, MB_SEGNAMES. Ver o README.
+MB_RESUME, MB_SEGNAMES. See the README.
 
-Observacao: 36 segmentos x FRAME_STACK frames + nivel (RAM 0x0B) + fase do tick
-(RAM 0x0C). Com FRAME_STACK = 1: 38 entradas. Com 4: 146.
-Recompensa com shaping por potencial (posicao do Mario).
-Com FORCE_NIVEL no Lua a velocidade e fixa; com nil, os resets sorteiam entre o
-inicio e os checkpoints por nivel ja guardados.
+Observation: 36 segments x FRAME_STACK frames + level (RAM 0x0B) + tick phase
+(RAM 0x0C). With FRAME_STACK = 1: 38 inputs. With 4: 146.
+Reward with potential-based shaping (Mario's position).
+With FORCE_NIVEL in the Lua script the speed is fixed; with nil, resets pick at
+random between the start and the per-level checkpoints already saved.
 """
 
 import os, random, collections
@@ -30,17 +30,17 @@ LR          = float(os.environ.get("MB_LR", 1e-4))
 GAMMA       = 0.99
 TARGET_SYNC = 1_000
 WARMUP      = int(os.environ.get("MB_WARMUP", 5_000))
-# Retomar: MB_RESUME=models/mario_dqn_final.pt  (usa MB_EPS_START/MB_EPS_END/MB_EPS_DECAY
-# para um chao de exploracao mais baixo; o buffer recomeca vazio)
+# Resume: MB_RESUME=models/mario_dqn_final.pt  (use MB_EPS_START/MB_EPS_END/MB_EPS_DECAY
+# for a lower exploration floor; the buffer starts empty again)
 EPS_START = float(os.environ.get("MB_EPS_START", 1.0))
 EPS_END   = float(os.environ.get("MB_EPS_END", 0.05))
 EPS_DECAY = int(os.environ.get("MB_EPS_DECAY", 50_000))
 RESUME    = os.environ.get("MB_RESUME", "")
-MAX_STEPS = int(os.environ.get("MB_MAX_STEPS", 5000))   # limite de passos por episodio
+MAX_STEPS = int(os.environ.get("MB_MAX_STEPS", 5000))   # step limit per episode
 TOTAL_STEPS = int(os.environ.get("MB_STEPS", 300_000))
 CKPT_EVERY  = 10_000
-FRAME_STACK = int(os.environ.get("MB_FRAME_STACK", 1))   # 1 = so a frame atual; 4 = como antes
-SHAPING     = float(os.environ.get("MB_SHAPING", 0.05))   # 0 desliga o shaping
+FRAME_STACK = int(os.environ.get("MB_FRAME_STACK", 1))   # 1 = current frame only; 4 = as before
+SHAPING     = float(os.environ.get("MB_SHAPING", 0.05))   # 0 disables shaping
 CKPT_DIR    = os.environ.get("MB_CKPT_DIR", "checkpoints")
 ROOT        = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SEGNAMES    = os.environ.get("MB_SEGNAMES", os.path.join(ROOT, "data", "segnames.json"))
@@ -81,7 +81,7 @@ def main():
         tgt.load_state_dict(ck["model"])
         opt.load_state_dict(ck["opt"])
         for g in opt.param_groups:
-            g["lr"] = LR                     # LR pode ser mudado ao retomar
+            g["lr"] = LR                     # LR can be changed when resuming
         print(f"retomado de {RESUME} (passo {ck['step']}) | lr {LR} | "
               f"eps {EPS_START} -> {EPS_END} em {EPS_DECAY} passos | buffer vazio")
 
@@ -91,13 +91,13 @@ def main():
     obs, info0 = env.reset()
     start_nivel, start_inicio = info0["start_nivel"], info0["start_inicio"]
     ep_entregas, ep_ret, ep = 0, 0.0, 0
-    hist_inicio = collections.deque(maxlen=50)   # so episodios que comecam no inicio
+    hist_inicio = collections.deque(maxlen=50)   # only episodes that begin at the start
     hist_niv = collections.defaultdict(lambda: collections.deque(maxlen=50))
     melhor = -1.0
     descartados = 0
-    truncados = 0        # episodios cortados pelo limite de passos (guardados, sem fim)
-    ep_buf = []          # transicoes deste episodio, so commit se for valido
-    acoes = np.zeros(n_out, dtype=np.int64)   # contagem de acoes desde o ultimo log
+    truncados = 0        # episodes cut off by the step limit (stored, not terminal)
+    ep_buf = []          # this episode's transitions, only committed if it's valid
+    acoes = np.zeros(n_out, dtype=np.int64)   # action counts since the last log
     NOMES_ACAO = ["nada", "esq", "dir", "botao"]
 
     def guardar(nome, step):
@@ -135,7 +135,7 @@ def main():
         ep_ret += r
         ep_entregas += int(info["entrega"])
 
-        # ------------------------------------------------ episodio invalido
+        # ------------------------------------------------ invalid episode
         if info["bug"]:
             descartados += 1
             print(f"   [DESCARTADO #{descartados}] step {step} | "
@@ -146,9 +146,9 @@ def main():
             continue
 
         if trunc and not done:
-            # Limite de passos, NAO e morte: o Mario ainda estava vivo. Guarda as
-            # transicoes (a ultima tem done=False, por isso a rede continua a
-            # fazer bootstrap do estado seguinte) e comeca outro episodio.
+            # Step limit, NOT death: Mario was still alive. Store the
+            # transitions (the last one has done=False, so the network keeps
+            # bootstrapping from the next state) and start another episode.
             truncados += 1
             buf.extend(ep_buf)
             hist_niv[start_nivel].append(ep_entregas)
@@ -161,15 +161,15 @@ def main():
             continue
 
         if done:
-            buf.extend(ep_buf)                 # so agora entra no buffer
+            buf.extend(ep_buf)                 # only now does it go into the buffer
             ep_buf.clear()
             hist_niv[start_nivel].append(ep_entregas)
-            if start_inicio:                   # episodio que comecou no checkpoint do inicio
+            if start_inicio:                   # episode that began at the start checkpoint
                 hist_inicio.append(ep_entregas)
             ep += 1
 
-            # best.pt: medido so em episodios que comecam no inicio, para ser
-            # comparavel com o baseline (os checkpoints de nivel sao mais dificeis)
+            # best.pt: measured only on episodes that begin at the start, so it's
+            # comparable with the baseline (the level checkpoints are harder)
             if len(hist_inicio) == hist_inicio.maxlen:
                 media = float(np.mean(hist_inicio))
                 if media > melhor:
@@ -186,7 +186,7 @@ def main():
                       f"descartados {descartados} | truncados {truncados}")
             novo_episodio()
 
-        # -------------------------------------------------------- treino
+        # -------------------------------------------------------- training
         if len(buf) < WARMUP:
             continue
 
@@ -200,7 +200,7 @@ def main():
 
         qv = q(o).gather(1, a_).squeeze(1)
         with torch.no_grad():
-            # Double DQN: a rede online escolhe a acao, a target avalia-a
+            # Double DQN: the online network picks the action, the target evaluates it
             a_next = q(no).argmax(1, keepdim=True)
             tv = r_ + GAMMA * (1 - d) * tgt(no).gather(1, a_next).squeeze(1)
 

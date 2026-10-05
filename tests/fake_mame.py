@@ -1,15 +1,15 @@
-"""Testa o pipeline SEM o MAME: corre o lua/env_server.lua verdadeiro num
-interpretador Lua (lupa) com um MAME falso (segmentos, RAM e inputs simulados),
-e liga-o ao Python pelos mesmos FIFOs. Serve para verificar que o protocolo, os
-resets, o treino e o play funcionam depois de mexer no codigo.
+"""Tests the pipeline WITHOUT MAME: runs the real lua/env_server.lua in a
+Lua interpreter (lupa) with a fake MAME (simulated segments, RAM and inputs),
+and connects it to Python over the same FIFOs. Use it to check that the protocol,
+resets, training and play still work after changing the code.
 
-Corre a partir da pasta do projeto:
+Run from the project folder:
     pip install lupa
-    python tests/fake_mame.py train      # treino curto (2000 passos)
-    python tests/fake_mame.py play       # avalia models/mario_dqn_final.pt (3 ep.)
+    python tests/fake_mame.py train      # short training run (2000 steps)
+    python tests/fake_mame.py play       # evaluates models/mario_dqn_final.pt (3 ep.)
 
-O jogo simulado nao tem nada a ver com o real (o Mario anda sozinho e morre
-de 300 em 300 frames): os numeros que aparecem nao significam nada.
+The simulated game has nothing to do with the real one (Mario moves on his own and
+dies every 300 frames): the numbers it prints are meaningless.
 """
 import os
 import sys
@@ -19,7 +19,7 @@ import time
 from lupa import LuaRuntime
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-os.chdir(ROOT)                          # o Lua usa caminhos relativos a raiz
+os.chdir(ROOT)                          # the Lua script uses paths relative to the root
 sys.path.insert(0, os.path.join(ROOT, "src"))
 MODE = sys.argv[1] if len(sys.argv) > 1 else "train"
 
@@ -56,7 +56,7 @@ G = lua.globals()
 
 def run_lua():
     lua.execute(open("lua/env_server.lua").read())
-    while True:                         # cada chamada = 1 frame do MAME
+    while True:                         # each call = 1 MAME frame
         G.sim.frame = G.sim.frame + 1
         G.sim.m2c = 15 if G.sim.frame % 300 == 0 else 0
         G.NOTIF()

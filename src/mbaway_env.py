@@ -1,13 +1,13 @@
-"""Ambiente Gymnasium para Mario's Bombs Away (Game & Watch, 1983) via MAME.
+"""Gymnasium environment for Mario's Bombs Away (Game & Watch, 1983) via MAME.
 
-Observacao (v3): segmentos da lista branca x frame_stack  +  2 escalares:
-  - nivel de velocidade (RAM 0x0B, normalizado)
-  - fase do tick (RAM 0x0C / 5): quanto falta para o proximo tick
-Com os 36 segmentos do JOGO e frame_stack=1 sao 36 + 2 = 38 valores.
+Observation (v3): whitelisted segments x frame_stack  +  2 scalars:
+  - speed level (RAM 0x0B, normalized)
+  - tick phase (RAM 0x0C / 5): how long until the next tick
+With the 36 GAME segments and frame_stack=1 that's 36 + 2 = 38 values.
 
-Recompensa: +1 entrega, -1 morte, -0.01 por passo, mais shaping por potencial
-    F = gamma * phi(s') - phi(s),   phi = shaping * (linha do Mario, 0..4)
-que NAO altera a politica otima (Ng, Harada, Russell 1999): so acelera o inicio.
+Reward: +1 delivery, -1 death, -0.01 per step, plus potential-based shaping
+    F = gamma * phi(s') - phi(s),   phi = shaping * (Mario's row, 0..4)
+which does NOT change the optimal policy (Ng, Harada, Russell 1999): it only speeds up the start.
 """
 
 import json
@@ -18,9 +18,9 @@ from segments import MARIO
 
 FIFO_IN, FIFO_OUT = "/tmp/mbaway_in", "/tmp/mbaway_out"
 
-# nivel de velocidade (RAM 0x0B): 5 = lento (inicio), menor = mais rapido.
+# speed level (RAM 0x0B): 5 = slow (start), lower = faster.
 NIVEL_LENTO, NIVEL_RAPIDO = 5, 1
-FASE_MAX = 5.0        # o 0x0C desce de 0x0B (<=5) ate 0
+FASE_MAX = 5.0        # 0x0C goes down from 0x0B (<=5) to 0
 
 
 def nivel_norm(n):
@@ -33,12 +33,12 @@ class MBAwayEnv(gym.Env):
 
     def __init__(self, frame_stack=1, noop_max=30, include=None, segnames=None,
                  shaping=0.05, gamma=0.99):
-        """include: lista de segmentos que ENTRAM na rede (tudo o resto sai).
-        segnames: caminho do segnames.json.
-        shaping: peso do potencial (0 desliga). gamma: o do treino.
+        """include: list of segments that GO INTO the network (everything else is left out).
+        segnames: path to segnames.json.
+        shaping: weight of the potential (0 disables it). gamma: the one used for training.
 
-        Os detetores de morte, entrega, bug e os checkpoints vivem no
-        env_server.lua e nao passam pela rede."""
+        The death, delivery and bug detectors and the checkpoints live in
+        env_server.lua and don't go through the network."""
         super().__init__()
         self.fin = open(FIFO_OUT, "r")
         self.fout = open(FIFO_IN, "w")
@@ -60,11 +60,11 @@ class MBAwayEnv(gym.Env):
         self.mario_idx = ([self.names.index(s) for s in MARIO]
                           if self.names else None)
 
-        self.action_space = spaces.Discrete(4)        # 0 nada 1 esq 2 dir 3 botao
+        self.action_space = spaces.Discrete(4)        # 0 nothing 1 left 2 right 3 button
         n = int(self.mask.sum()) * self.k + 2
         self.observation_space = spaces.Box(0.0, 1.0, (n,), np.float32)
 
-    # ------------------------------------------------------------ ponte
+    # ------------------------------------------------------------ bridge
     def _cmd(self, s):
         self.fout.write(s + "\n")
         self.fout.flush()
@@ -92,11 +92,11 @@ class MBAwayEnv(gym.Env):
         self.mask = np.array([nm in keep for nm in self.names], dtype=bool)
         print(f"lista branca: {int(self.mask.sum())} segmentos na rede (de {self.n_raw})")
 
-    # ------------------------------------------------------------ potencial
+    # ------------------------------------------------------------ potential
     def _phi(self, raw):
-        """Linha do Mario (0..4) x shaping. O Mario e um unico segmento aceso, em 2
-        colunas (.1/.2) x 5 linhas: indice 0..9, linha = indice // 2. Se nao ha
-        exatamente um aceso (piscar, cutscene) mantem o ultimo valor."""
+        """Mario's row (0..4) x shaping. Mario is a single lit segment, in 2
+        columns (.1/.2) x 5 rows: index 0..9, row = index // 2. If there isn't
+        exactly one lit (blinking, cutscene) it keeps the last value."""
         if not self.shaping or self.mario_idx is None:
             return 0.0
         lit = raw[self.mario_idx]
@@ -110,7 +110,7 @@ class MBAwayEnv(gym.Env):
         raw, *_ = self._cmd("RESET")
         self.start_nivel, self.start_inicio = self.nivel, self.inicio
         for _ in range(int(self.np_random.integers(0, self.noop_max))):
-            raw, *_ = self._cmd("STEP 0")     # desfasa os contadores do chip
+            raw, *_ = self._cmd("STEP 0")     # shifts the chip's counters out of phase
         self.frames = [raw[self.mask]] * self.k
         self.phi = 0.0
         self.phi = self._phi(raw)
@@ -126,7 +126,7 @@ class MBAwayEnv(gym.Env):
 
         reward = -0.01 + (1.0 if entrega else 0.0) - (1.0 if morte else 0.0)
 
-        # shaping por potencial; no fim do episodio phi(s') = 0
+        # potential-based shaping; at the end of the episode phi(s') = 0
         phi_new = 0.0 if (morte or bug) else self._phi(raw)
         reward += self.gamma * phi_new - self.phi
         self.phi = phi_new

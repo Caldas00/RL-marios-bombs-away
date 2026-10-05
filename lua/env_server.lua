@@ -1,22 +1,22 @@
--- env_server.lua -- ponte MAME <-> Python para Mario's Bombs Away (Game B)
+-- env_server.lua -- MAME <-> Python bridge for Mario's Bombs Away (Game B)
 --
 --   mame gnw_mbaway -autoboot_script lua/env_server.lua -autoboot_delay 0 \
 --        -window -nothrottle -sound none
 --
--- O RESET E FEITO AQUI, no mesmo frame em que a morte e detetada.
--- O Python so e informado ("morte=1"); nao tem de mandar nada de volta.
+-- THE RESET HAPPENS HERE, in the same frame the death is detected.
+-- Python is only told about it (death=1); it doesn't have to send anything back.
 --
--- Protocolo:
+-- Protocol:
 --   Python -> Lua :  "RESET" | "STEP <0-3>"
---   Lua -> Python :  "<bits>;<morte>;<entrega>;<bug>;<nivel>;<fase>;<inicio>"
+--   Lua -> Python :  "<bits>;<death>;<delivery>;<bug>;<level>;<phase>;<start>"
 --
--- v3: <nivel> = RAM 0x0B (nivel de velocidade), <fase> = RAM 0x0C (contador que
--- desce de <nivel> ate 0 entre dois ticks: diz quanto falta para o proximo tick),
--- <inicio> = 1 se o ultimo load foi o checkpoint do inicio (slot "1").
--- O 0x0B so muda no fim da animacao de entrega. A primeira vez que cada
--- nivel (NIVEL_MIN .. NIVEL_INICIO-1) aparece, o estado e guardado em "lv<N>".
--- Nos resets escolhe-se ao acaso entre o checkpoint do inicio (SLOT) e os niveis
--- ja guardados. Para regenerar os checkpoints por nivel, apaga os lv*.sta.
+-- v3: <level> = RAM 0x0B (speed level), <phase> = RAM 0x0C (counter that goes
+-- down from <level> to 0 between two ticks: tells how long until the next tick),
+-- <start> = 1 if the last load was the start checkpoint (slot "1").
+-- 0x0B only changes at the end of the delivery animation. The first time each
+-- level (NIVEL_MIN .. NIVEL_INICIO-1) appears, the state is saved to "lv<N>".
+-- On reset, the slot is picked at random between the start checkpoint (SLOT) and
+-- the levels already saved. To regenerate the per-level checkpoints, delete lv*.sta.
 
 local mach = manager.machine
 local root = mach.devices[":"]
@@ -24,35 +24,35 @@ local cpu  = mach.devices[":maincpu"]
 local ram  = cpu.spaces["data"] or cpu.spaces["program"]
 
 ------------------------------------------------------------------ config
-local SEGNAMES    = "data/segnames.json"       -- relativo a pasta do projeto
+local SEGNAMES    = "data/segnames.json"       -- relative to the project folder
 local FIFO_IN     = "/tmp/mbaway_in"
 local FIFO_OUT    = "/tmp/mbaway_out"
 local SLOT        = "1"
-local STA_DIR     = "sta/gnw_mbaway/"          -- state_directory do MAME (relativo)
+local STA_DIR     = "sta/gnw_mbaway/"          -- MAME state_directory (relative)
 
-local ADDR_NIVEL   = 0x0B     -- nivel de velocidade (confirmado por poke)
-local ADDR_FASE    = 0x0C     -- contador do tick (desce de ADDR_NIVEL ate 0)
-local ADDR_ANIM    = 0x5A     -- 0 quando a animacao de entrega acabou
-local NIVEL_INICIO = 5        -- nivel do checkpoint do inicio
-local NIVEL_MIN    = 1        -- 0 e o valor antes do jogo arrancar: nao guardar
-local P_INICIO     = 0.5      -- prob. de um reset ir para o inicio (se houver niveis)
+local ADDR_NIVEL   = 0x0B     -- speed level (confirmed by poke)
+local ADDR_FASE    = 0x0C     -- tick counter (goes down from ADDR_NIVEL to 0)
+local ADDR_ANIM    = 0x5A     -- 0 when the delivery animation has finished
+local NIVEL_INICIO = 5        -- level of the start checkpoint
+local NIVEL_MIN    = 1        -- 0 is the value before the game starts: don't save
+local P_INICIO     = 0.5      -- prob. that a reset goes to the start (if there are levels)
 
--- Velocidade FIXA: se != nil, a RAM 0x0B e forcada a este valor a cada frame
--- (o poke que confirmamos que controla a velocidade real). Com isto ligado nao ha
--- checkpoints por nivel e todos os resets vao para o inicio. Poe nil para desligar.
-local FORCE_NIVEL  = 3        -- poe nil para libertar a velocidade (checkpoints por nivel)
+-- FIXED speed: if != nil, RAM 0x0B is forced to this value every frame
+-- (the poke we confirmed controls the real speed). With this on there are no
+-- per-level checkpoints and every reset goes to the start. Set to nil to disable.
+local FORCE_NIVEL  = 3        -- set to nil to free the speed (per-level checkpoints)
 
 local SEG_PEGAR   = "1.0.2"
 local SEG_ENTREGA = "0.10.0"
-local SEG_BUG     = "1.15.1"    -- acende na cutscene de morte: deteccao escapou
+local SEG_BUG     = "1.15.1"    -- lights up in the death cutscene: detection missed it
 local ADDR_MORTE  = 0x2C
 local VALOR_MORTE = 15
 
 local ACTION_REPEAT = 8
 local MAX_SKIP      = 300
-local LOAD_FRAMES   = 12      -- igual ao cooldown do make_checkpoint.lua
+local LOAD_FRAMES   = 12      -- same as the cooldown in make_checkpoint.lua
 
------------------------------------------------------------------- segmentos
+------------------------------------------------------------------ segments
 local NAMES = {}
 for line in io.lines(SEGNAMES) do
   local n = line:match('^"([%d%.]+)",?$')
@@ -93,7 +93,7 @@ local function apply(a)
   elseif a == 3 then F.btn:set_value(1) end
 end
 
------------------------------------------------------------------- estado
+------------------------------------------------------------------ state
 local prev_ram, prev_pegar, prev_entrega, prev_bug = -1, false, false, false
 local game_stopped = false
 local acc_morte, acc_entrega, acc_bug = false, false, false
@@ -101,7 +101,7 @@ local mortes, resets_falhados, bugs = 0, 0, 0
 
 math.randomseed(os.time())
 
--- checkpoints por nivel ja existentes em disco
+-- per-level checkpoints already on disk
 local saved, tried, cargas = {}, {}, {}
 for L = NIVEL_MIN, NIVEL_INICIO - 1 do
   local fh = io.open(STA_DIR .. "lv" .. L .. ".sta", "rb")
@@ -118,7 +118,7 @@ local function pick_slot()
   return "lv" .. avail[math.random(#avail)]
 end
 
-local ultimo_inicio = true    -- o ultimo load foi o checkpoint do inicio?
+local ultimo_inicio = true    -- was the last load the start checkpoint?
 
 local function do_load()
   local slot = pick_slot()
@@ -132,7 +132,7 @@ local function do_load()
   return ok
 end
 
--- devolve true se detetou morte (e ja carregou o checkpoint)
+-- returns true if it detected a death (and has already loaded the checkpoint)
 local function sample()
   local pegar   = (P_PEGAR:get()   ~= 0)
   local entrega = (P_ENTREGA:get() ~= 0)
@@ -150,8 +150,8 @@ local function sample()
 
   prev_ram, prev_pegar, prev_entrega, prev_bug = v, pegar, entrega, bug
 
-  -- a cutscene de morte foi alcancada: a deteccao por m_2C escapou.
-  -- reinicia e marca o episodio como invalido.
+  -- the death cutscene was reached: the m_2C detection missed it.
+  -- reset and mark the episode as invalid.
   if bugou then
     acc_bug = true
     bugs = bugs + 1
@@ -163,7 +163,7 @@ local function sample()
   if morreu then
     acc_morte = true
     mortes = mortes + 1
-    do_load()                      -- RESET IMEDIATO, no proprio frame
+    do_load()                      -- IMMEDIATE RESET, in the same frame
     if mortes % 50 == 0 then
       local partes = {}
       for k, n in pairs(cargas) do partes[#partes + 1] = k .. "=" .. n end
@@ -176,8 +176,8 @@ local function sample()
   return false
 end
 
--- guarda o checkpoint da primeira vez que um nivel novo aparece.
--- devolve true se pediu um save (o save do MAME acontece no fim do frame).
+-- saves the checkpoint the first time a new level appears.
+-- returns true if it requested a save (MAME's save happens at the end of the frame).
 local function maybe_save_level()
   if FORCE_NIVEL then return false end
   local v = ram:read_u8(ADDR_NIVEL)
@@ -207,7 +207,7 @@ os.execute("mkfifo " .. FIFO_IN .. " " .. FIFO_OUT)
 local fout = io.open(FIFO_OUT, "w"); fout:setvbuf("line")
 local fin  = io.open(FIFO_IN,  "r")
 
------------------------------------------------------------------- fases
+------------------------------------------------------------------ phases
 local IDLE, STEP, SKIP, SETTLE = 0, 1, 2, 3
 local phase, left, skipped = IDLE, 0, 0
 
@@ -226,8 +226,8 @@ end
 local function on_frame()
   if not SEGP then
     if build_proxies() then
-      -- inicializa os prev_* com os valores REAIS, senao o primeiro sample
-      -- ve flancos fantasma e o game_stopped fica preso
+      -- initialize the prev_* with the REAL values, otherwise the first sample
+      -- sees phantom edges and game_stopped gets stuck
       prev_ram     = ram:read_u8(ADDR_MORTE)
       prev_pegar   = (P_PEGAR:get()   ~= 0)
       prev_entrega = (P_ENTREGA:get() ~= 0)
@@ -243,7 +243,7 @@ local function on_frame()
 
   if FORCE_NIVEL then ram:write_u8(ADDR_NIVEL, FORCE_NIVEL) end
 
-  ---------------------------------------------------------------- passo
+  ---------------------------------------------------------------- step
   if phase == STEP then
     local morreu = sample()
     left = left - 1
@@ -258,7 +258,7 @@ local function on_frame()
     return
   end
 
-  ---------------------------------------------------------------- salto
+  ---------------------------------------------------------------- skip
   if phase == SKIP then
     local morreu = sample()
     skipped = skipped + 1
@@ -267,14 +267,14 @@ local function on_frame()
     elseif (not game_stopped) or skipped >= MAX_SKIP then
       if skipped >= MAX_SKIP then
         print("!! MAX_SKIP atingido -- a libertar game_stopped")
-        game_stopped = false        -- nao ficar preso em ciclo
+        game_stopped = false        -- don't get stuck in a loop
       end
       phase = IDLE; reply()
     end
     return
   end
 
-  ---------------------------------------------------------------- pos-load
+  ---------------------------------------------------------------- post-load
   if phase == SETTLE then
     left = left - 1
     if left <= 0 then
@@ -284,13 +284,13 @@ local function on_frame()
       prev_bug     = (P_BUG:get()     ~= 0)
       game_stopped = false
       phase = IDLE
-      reply()                       -- acc_morte segue a 1: o Python fecha o episodio
+      reply()                       -- acc_morte is still 1: Python ends the episode
     end
     return
   end
 
-  ---------------------------------------------------------------- comando
-  if maybe_save_level() then return end   -- 1 frame de intervalo apos o save
+  ---------------------------------------------------------------- command
+  if maybe_save_level() then return end   -- 1-frame gap after the save
 
   local cmd = fin:read("l")
   if not cmd then return end

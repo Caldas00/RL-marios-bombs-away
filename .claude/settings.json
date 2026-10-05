@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/bin/python /private/tmp/claude-501/-Users-kikocaldas-mame/c0f0628c-3fae-4f81-a298-ed8c46e4b994/scratchpad/verify.py)",
+      "Bash(python3 /private/tmp/claude-501/-Users-kikocaldas-mame/c0f0628c-3fae-4f81-a298-ed8c46e4b994/scratchpad/verify.py)"
+    ]
+  }
+}

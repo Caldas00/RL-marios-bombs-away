@@ -1,11 +1,11 @@
-"""Avalia um modelo em modo greedy (epsilon = 0) e imprime a media de entregas.
+"""Evaluates a model in greedy mode (epsilon = 0) and prints the average number of deliveries.
 
-Corre a partir da pasta do projeto. Sem -nothrottle ves o jogo a velocidade real;
-com -nothrottle a avaliacao e ~8x mais rapida.
+Run from the project folder. Without -nothrottle you watch the game at real speed;
+with -nothrottle the evaluation is ~8x faster.
     mame gnw_mbaway -autoboot_script lua/env_server.lua -autoboot_delay 0 -window
     MB_EP=30 python src/play.py [models/mario_dqn_final.pt]
 
-MB_EP: numero de episodios (10). MB_MAX_STEPS: limite de passos por episodio (20000).
+MB_EP: number of episodes (10). MB_MAX_STEPS: step limit per episode (20000).
 """
 
 import os, sys
@@ -30,7 +30,7 @@ def mlp(n_in, n_out):
 ck = torch.load(CKPT, map_location="cpu", weights_only=False)
 env = MBAwayEnv(segnames=SEGNAMES, include=JOGO,
                 frame_stack=ck.get("frame_stack", 1), shaping=0.0)
-env.max_steps = int(os.environ.get("MB_MAX_STEPS", 20000))   # sem o corte dos 2000
+env.max_steps = int(os.environ.get("MB_MAX_STEPS", 20000))   # without the 2000-step cutoff
 assert env.mask.sum() == ck["mask"].sum() and (env.mask == ck["mask"]).all(), \
     "a mascara do checkpoint nao bate com a do ambiente"
 assert env.observation_space.shape[0] == ck["n_in"], "n_in diferente do checkpoint"

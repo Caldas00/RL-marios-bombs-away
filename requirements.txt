@@ -1,8 +1,8 @@
-# treino e avaliacao (versoes com que o modelo foi treinado, Python 3.14)
+# training and evaluation (versions the model was trained with, Python 3.14)
 torch==2.14.0
 numpy==2.5.3
 gymnasium==1.3.0
 
-# opcional
+# optional
 # pandas      # research/analyze_speed*.py
 # lupa        # tests/fake_mame.py

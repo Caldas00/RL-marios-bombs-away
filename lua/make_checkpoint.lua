@@ -1,21 +1,21 @@
--- make_checkpoint.lua -- cria o checkpoint do inicio do Game B (sta/gnw_mbaway/1.sta)
+-- make_checkpoint.lua -- creates the Game B start checkpoint (sta/gnw_mbaway/1.sta)
 --
--- So e preciso correr UMA vez (o 1.sta ja vem no projeto). Volta a correr apenas
--- se quiseres regenerar o checkpoint: ATENCAO, isto reescreve o 1.sta.
+-- Only needs to run ONCE (1.sta already ships with the project). Run it again only
+-- if you want to regenerate the checkpoint: WARNING, this overwrites 1.sta.
 --
 --   mame gnw_mbaway -autoboot_script lua/make_checkpoint.lua -autoboot_delay 3 -window
 --
--- No MAME: carrega em Game B e joga normalmente. O script grava o estado no 3o
--- flanco de descida do segmento 1.0.2 (o Mario recebeu a bomba pela 3a vez, ou
--- seja ja com o jogo a correr e uma bomba na mao) e congela: nao volta a gravar.
--- Depois disso fica a fazer reset automatico em cada morte (util para testar).
+-- In MAME: press Game B and play normally. The script saves the state on the 3rd
+-- falling edge of segment 1.0.2 (Mario received the bomb for the 3rd time, i.e.
+-- the game is already running with a bomb in hand) and freezes: it won't save again.
+-- After that it keeps auto-resetting on every death (useful for testing).
 --
--- Logica:
---   * 1.0.2 desliga  -> Mario recebeu a bomba. No 3o flanco grava o checkpoint
---                       e congela (nao volta a gravar).
---   * 0.10.0 liga    -> bomba entregue. Entra em game_stopped.
---   * 1.0.2 desliga  -> sai de game_stopped (nova bomba na mao).
---   * m_2C -> 15     -> morte. Carrega o checkpoint.
+-- Logic:
+--   * 1.0.2 turns off -> Mario received the bomb. On the 3rd edge it saves the
+--                        checkpoint and freezes (won't save again).
+--   * 0.10.0 turns on -> bomb delivered. Enters game_stopped.
+--   * 1.0.2 turns off -> leaves game_stopped (new bomb in hand).
+--   * m_2C -> 15      -> death. Loads the checkpoint.
 
 local mach = manager.machine
 local root = mach.devices[":"]
@@ -23,10 +23,10 @@ local cpu  = mach.devices[":maincpu"]
 local ram  = cpu.spaces["data"] or cpu.spaces["program"]
 
 ------------------------------------------------------------------ config
-local LOGFILE      = "make_checkpoint.log"   -- relativo a pasta do projeto
-local SEG_PEGAR    = "1.0.2"    -- desliga quando o Mario recebe a bomba
-local SEG_ENTREGA  = "0.10.0"   -- liga quando a bomba e entregue
-local SAVE_ON_EDGE = 3          -- flanco em que grava e congela
+local LOGFILE      = "make_checkpoint.log"   -- relative to the project folder
+local SEG_PEGAR    = "1.0.2"    -- turns off when Mario receives the bomb
+local SEG_ENTREGA  = "0.10.0"   -- turns on when the bomb is delivered
+local SAVE_ON_EDGE = 3          -- edge on which it saves and freezes
 local SLOT         = "1"
 local ADDR_MORTE   = 0x2C
 local VALOR_MORTE  = 15
@@ -51,7 +51,7 @@ local function get(name)
   return nil
 end
 
------------------------------------------------------------------- estado
+------------------------------------------------------------------ state
 local frame        = 0
 local prev_pegar   = nil
 local prev_entrega = nil
@@ -86,7 +86,7 @@ local function tick()
     return
   end
 
-  ---------------------------------------------------------------- morte
+  ---------------------------------------------------------------- death
   if tem_save and v == VALOR_MORTE and prev_ram ~= VALOR_MORTE then
     mortes = mortes + 1
     local ok, err = pcall(function() mach:load(SLOT) end)
@@ -101,7 +101,7 @@ local function tick()
     return
   end
 
-  ---------------------------------------------------------------- entrega
+  ---------------------------------------------------------------- delivery
   if entrega and not prev_entrega then
     entregas = entregas + 1
     game_stopped = true
@@ -109,7 +109,7 @@ local function tick()
                       entregas, frame))
   end
 
-  ---------------------------------------------------------------- flanco 1.0.2
+  ---------------------------------------------------------------- 1.0.2 edge
   if prev_pegar and not pegar then
     edges = edges + 1
 

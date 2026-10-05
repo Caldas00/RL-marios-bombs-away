@@ -1,12 +1,12 @@
--- poke_speed.lua -- forca o nivel de velocidade (RAM 0x0B) e mede o tick m_09
+-- poke_speed.lua -- forces the speed level (RAM 0x0B) and measures the m_09 tick
 --
 --   mame gnw_mbaway -autoboot_script lua/poke_speed.lua -autoboot_delay 0 -window
 --
--- Muda LEVEL abaixo (5 = normal do inicio, 4, 3, 2, 1, 0 = mais rapido?)
--- Joga normalmente (sem invencibilidade). Depois de FRAME_START a RAM 0x0B e
--- forcada a LEVEL a cada frame. No terminal aparece o intervalo medio do tick
--- m_09 (frames por tick): se o poke funciona, tem de baixar como previsto
--- (5 ~ 27, 4 ~ 22, 3 ~ 17.5) e o jogo tem de ficar visivelmente mais rapido.
+-- Change LEVEL below (5 = normal at the start, 4, 3, 2, 1, 0 = faster?)
+-- Play normally (no invincibility). After FRAME_START, RAM 0x0B is forced
+-- to LEVEL every frame. The terminal shows the average interval of the m_09
+-- tick (frames per tick): if the poke works, it should drop as predicted
+-- (5 ~ 27, 4 ~ 22, 3 ~ 17.5) and the game should become visibly faster.
 
 local LEVEL       = 3
 local FRAME_START = 300

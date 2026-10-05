@@ -1,10 +1,10 @@
--- dump_ram.lua -- grava, a cada frame, os 131 segmentos do LCD + os 128 enderecos
--- de RAM do SM511. Foi com isto que se encontrou a velocidade (0x0B) e a fase do
--- tick (0x0C). Joga tu normalmente enquanto grava.
+-- dump_ram.lua -- records, every frame, the 131 LCD segments + the SM511's 128 RAM
+-- addresses. This is how the speed (0x0B) and the tick phase (0x0C) were found.
+-- Play normally while it records.
 --
 --   mame gnw_mbaway -autoboot_script lua/dump_ram.lua -autoboot_delay 0 -window
 --
--- Escreve em research/data/ram_dump.csv  (colunas: frame, s_<segmento>..., m_00..m_7F)
+-- Writes to research/data/ram_dump.csv  (columns: frame, s_<segment>..., m_00..m_7F)
 
 local mach = manager.machine
 local root = mach.devices[":"]
